@@ -7,8 +7,8 @@ I'm creating this to fulfill my long wanted dream, to make an operating system o
 
 ## Current status
 
-- [ ] Boot
-- [ ] Serial output
+- [x] Boot
+- [x] Serial output
 - [ ] Exceptions
 - [ ] Timer
 - [ ] Memory management
