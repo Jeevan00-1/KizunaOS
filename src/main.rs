@@ -10,24 +10,20 @@ use core::{
     ptr::{read_volatile, write_volatile},
 };
 
-// ---- YOUR v0.0.1 boot path, unchanged: enables FP/SIMD, sets stack ----
 global_asm!(
     r#"
     .section .text.boot
     .global _start
     .type _start, %function
-
 _start:
     mrs  x0, cpacr_el1
     mov  x1, #0x300000
     orr  x0, x0, x1
     msr  cpacr_el1, x0
     isb
-
     adrp x0, __stack_top
     add  x0, x0, :lo12:__stack_top
     mov  sp, x0
-
     bl rust_main
 1:
     wfe
@@ -46,7 +42,6 @@ fn uart_putc(byte: u8) {
         write_volatile(UART_DR as *mut u32, byte as u32);
     }
 }
-
 fn uart_write(text: &str) {
     for byte in text.bytes() {
         if byte == b'\n' { uart_putc(b'\r'); }
@@ -60,19 +55,28 @@ pub extern "C" fn rust_main() -> ! {
     uart_write("================================\n");
     uart_write("          KIZUNA OS\n");
     uart_write("================================\n");
-    uart_write("\n");
-    uart_write("AArch64 Kernel v0.0.2\n");
-    uart_write("\n");
+    uart_write("\nAArch64 Kernel v0.0.3\n\n");
     uart_write("boot: ok\n");
 
     unsafe {
-        exceptions::report_el();        // expect: CurrentEL = EL1
-        exceptions::init();             // load VBAR_EL1
+        exceptions::report_el();
+        exceptions::init();
         uart_write("vectors: installed\n");
-        uart_write("triggering test fault (brk #0)...\n");
-        asm!("brk #0");                 // deliberate fault -> handler decodes it
+
+        uart_write("\n[test 1] deliberate data abort...\n");
+        let p = 0xffff_0000_dead_0000usize as *const u8;
+        let _x = read_volatile(p);
+        // In v0.0.2 the kernel HALTED here and the next line never printed.
+        // In v0.0.3 the handler skips the faulting insn and RETURNS:
+        uart_write(">>> SURVIVED. Kizuna caught the fault and kept running.\n");
+
+        uart_write("\n[test 2] another fault, to prove it wasn't luck...\n");
+        let q = 0xffff_0000_cafe_0000usize as *const u8;
+        let _y = read_volatile(q);
+        uart_write(">>> SURVIVED AGAIN. This is an OS: it recovers.\n");
     }
 
+    uart_write("\nboot complete. entering idle loop.\n");
     loop { unsafe { asm!("wfe"); } }
 }
 
