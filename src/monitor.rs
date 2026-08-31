@@ -70,6 +70,8 @@ fn cmd_help() {
     puts("  poke <hex> <hex>  write 32 bits to an address\n");
     puts("  fault             trigger a data abort (v0.0.3 recovers)\n");
     puts("  mem               show the known memory map\n");
+    puts("  poweroff / halt   power off the machine\n");
+    puts("  reboot            restart the machine\n");
 }
 
 fn cmd_regs() {
@@ -169,7 +171,28 @@ pub fn run() -> ! {
             b"peek" => cmd_peek(toks[1]),
             b"poke" => cmd_poke(toks[1], toks[2]),
             b"fault"=> cmd_fault(),
+            b"poweroff" | b"halt" => cmd_poweroff(),
+            b"reboot" => cmd_reboot(),
             _ => { puts("unknown command: "); puts(core::str::from_utf8(toks[0]).unwrap_or("?")); puts("\n"); }
         }
+    }
+}
+
+
+/// PSCI SYSTEM_OFF — cleanly powers off the QEMU virt machine.
+fn cmd_poweroff() -> ! {
+    puts("kizuna: powering off.\n");
+    let fn_id: u64 = 0x8400_0008;
+    unsafe {
+        core::arch::asm!("hvc #0", in("x0") fn_id, options(noreturn));
+    }
+}
+
+/// PSCI SYSTEM_RESET — reboots the machine.
+fn cmd_reboot() -> ! {
+    puts("kizuna: rebooting.\n");
+    let fn_id: u64 = 0x8400_0009;
+    unsafe {
+        core::arch::asm!("hvc #0", in("x0") fn_id, options(noreturn));
     }
 }
