@@ -3,6 +3,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 mod exceptions;
+mod monitor;
 
 use core::{
     arch::{asm, global_asm},
@@ -55,29 +56,16 @@ pub extern "C" fn rust_main() -> ! {
     uart_write("================================\n");
     uart_write("          KIZUNA OS\n");
     uart_write("================================\n");
-    uart_write("\nAArch64 Kernel v0.0.3\n\n");
+    uart_write("\nAArch64 Kernel v0.0.4\n\n");
     uart_write("boot: ok\n");
 
     unsafe {
         exceptions::report_el();
         exceptions::init();
         uart_write("vectors: installed\n");
-
-        uart_write("\n[test 1] deliberate data abort...\n");
-        let p = 0xffff_0000_dead_0000usize as *const u8;
-        let _x = read_volatile(p);
-        // In v0.0.2 the kernel HALTED here and the next line never printed.
-        // In v0.0.3 the handler skips the faulting insn and RETURNS:
-        uart_write(">>> SURVIVED. Kizuna caught the fault and kept running.\n");
-
-        uart_write("\n[test 2] another fault, to prove it wasn't luck...\n");
-        let q = 0xffff_0000_cafe_0000usize as *const u8;
-        let _y = read_volatile(q);
-        uart_write(">>> SURVIVED AGAIN. This is an OS: it recovers.\n");
     }
 
-    uart_write("\nboot complete. entering idle loop.\n");
-    loop { unsafe { asm!("wfe"); } }
+    monitor::run(); // hand control to the interactive monitor
 }
 
 #[panic_handler]
