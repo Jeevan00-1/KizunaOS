@@ -1,5 +1,6 @@
-// KizunaOS v0.0.4 — interactive kernel monitor over the UART
 #![allow(unsafe_op_in_unsafe_fn)]
+extern crate alloc;
+// KizunaOS v0.0.4 — interactive kernel monitor over the UART
 
 const UART_BASE: usize = 0x0900_0000;
 const UART_DR: *mut u32 = UART_BASE as *mut u32;
@@ -64,12 +65,16 @@ fn current_el() -> u64 {
 fn cmd_help() {
     puts("kizuna monitor commands:\n");
     puts("  help              this list\n");
+    puts("  clear             clear the screen\n");
     puts("  el                show current exception level\n");
     puts("  regs              dump a few key system registers\n");
     puts("  peek <hex>        read 32 bits from an address\n");
     puts("  poke <hex> <hex>  write 32 bits to an address\n");
     puts("  fault             trigger a data abort (v0.0.3 recovers)\n");
     puts("  mem               show the known memory map\n");
+    puts("  heap              heap allocator stats\n");
+    puts("  alloctest         allocate a Vec and String\n");
+    puts("  uaf               demonstrate use-after-free reuse\n");
     puts("  poweroff / halt   power off the machine\n");
     puts("  reboot            restart the machine\n");
 }
@@ -125,11 +130,13 @@ fn tokenize(line: &[u8]) -> ([&[u8]; 3], usize) {
     let mut toks: [&[u8]; 3] = [&[], &[], &[]];
     let mut n = 0;
     let mut i = 0;
-    while i < line.len() && n < 3 {
+    while n < 3 {
         while i < line.len() && line[i] == b' ' { i += 1; }
+        if i >= line.len() { break; }
         let start = i;
         while i < line.len() && line[i] != b' ' { i += 1; }
-        if i > start { toks[n] = &line[start..i]; n += 1; }
+        toks[n] = &line[start..i];
+        n += 1;
     }
     (toks, n)
 }
@@ -165,12 +172,16 @@ pub fn run() -> ! {
 
         match toks[0] {
             b"help" => cmd_help(),
+            b"clear" => cmd_clear(),
             b"el"   => { puts("CurrentEL = EL"); putc(b'0' + current_el() as u8); puts("\n"); }
             b"regs" => cmd_regs(),
             b"mem"  => cmd_mem(),
             b"peek" => cmd_peek(toks[1]),
             b"poke" => cmd_poke(toks[1], toks[2]),
             b"fault"=> cmd_fault(),
+            b"heap" => cmd_heap(),
+            b"alloctest" => cmd_alloctest(),
+            b"uaf" => cmd_uaf(),
             b"poweroff" | b"halt" => cmd_poweroff(),
             b"reboot" => cmd_reboot(),
             _ => { puts("unknown command: "); puts(core::str::from_utf8(toks[0]).unwrap_or("?")); puts("\n"); }
@@ -195,4 +206,80 @@ fn cmd_reboot() -> ! {
     unsafe {
         core::arch::asm!("hvc #0", in("x0") fn_id, options(noreturn));
     }
+}
+
+/// Show heap statistics from the global free-list allocator.
+fn cmd_heap() {
+    let a = &crate::heap::ALLOCATOR;
+    puts("arena base : "); put_hex64(a.base() as u64); puts("
+");
+    puts("total      : "); put_hex64(a.total() as u64); puts(" bytes
+");
+    puts("used(bump) : "); put_hex64(a.used() as u64);  puts(" bytes
+");
+    puts("allocs     : "); put_hex64(a.allocs() as u64); puts("
+");
+    puts("frees      : "); put_hex64(a.frees() as u64);  puts("
+");
+    puts("reuses     : "); put_hex64(a.reuses() as u64); puts("  <- freed chunks recycled
+");
+}
+
+/// Prove the allocator works: build a Vec and a String at runtime.
+fn cmd_alloctest() {
+    use alloc::vec::Vec;
+    use alloc::string::String;
+
+    puts("allocating a Vec<u64> and pushing 8 values...\n");
+    let mut v: Vec<u64> = Vec::new();
+    for i in 0..8 { v.push(0x1000 + i); }
+    puts("vec[0] = "); put_hex64(v[0]); puts("   vec[7] = "); put_hex64(v[7]); puts("\n");
+    puts("vec backing ptr = "); put_hex64(v.as_ptr() as u64); puts("\n");
+
+    let mut s = String::new();
+    s.push_str("kizuna heap works");
+    puts("string built on the heap: "); puts(&s); puts("\n");
+    puts("(both freed when this fn returns — watch live count)\n");
+}
+
+/// Clear the terminal screen via ANSI escape codes.
+fn cmd_clear() {
+    // ESC[2J = clear screen, ESC[H = cursor to home (top-left)
+    puts("\x1b[2J\x1b[H");
+}
+
+/// Demonstrate the use-after-free SUBSTRATE: allocate, free, allocate again,
+/// and show the SAME address handed back. That reuse is what UAF exploits.
+fn cmd_uaf() {
+    use alloc::boxed::Box;
+
+    puts("--- UAF substrate demo ---\n");
+
+    // Allocate object A (a 32-byte-ish box), record its address.
+    let a: Box<[u64; 4]> = Box::new([0xAAAA_AAAA; 4]);
+    let addr_a = a.as_ptr() as u64;
+    puts("alloc A  @ "); put_hex64(addr_a); puts("  (filled with 0xAAAAAAAA)\n");
+
+    // Free A. Its memory goes onto the free list.
+    drop(a);
+    puts("free  A  -> chunk pushed to free list\n");
+
+    // Allocate object B of the SAME size. Watch the address.
+    let b: Box<[u64; 4]> = Box::new([0xBBBB_BBBB; 4]);
+    let addr_b = b.as_ptr() as u64;
+    puts("alloc B  @ "); put_hex64(addr_b); puts("  (filled with 0xBBBBBBBB)\n");
+
+    if addr_a == addr_b {
+        puts(">>> SAME ADDRESS. B reused A's freed memory.\n");
+        puts(">>> A stale pointer to A now reads B's data. THAT is use-after-free.\n");
+    } else {
+        puts(">>> different address (bin/timing). run again.\n");
+    }
+
+    // Prove it: read the raw memory at A's old address — it now holds B's bytes.
+    let leaked = unsafe { core::ptr::read_volatile(addr_a as *const u64) };
+    puts("peek old-A addr = "); put_hex64(leaked);
+    puts("  (0xBBBBBBBB = we're reading B through A's address)\n");
+
+    drop(b);
 }

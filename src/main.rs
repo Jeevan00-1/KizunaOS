@@ -2,8 +2,11 @@
 #![no_main]
 #![allow(unsafe_op_in_unsafe_fn)]
 
+extern crate alloc;
+
 mod exceptions;
 mod monitor;
+mod heap;
 
 use core::{
     arch::{asm, global_asm},
@@ -56,7 +59,7 @@ pub extern "C" fn rust_main() -> ! {
     uart_write("================================\n");
     uart_write("          KIZUNA OS\n");
     uart_write("================================\n");
-    uart_write("\nAArch64 Kernel v0.0.4\n\n");
+    uart_write("\nAArch64 Kernel v0.0.5\n\n");
     uart_write("boot: ok\n");
 
     unsafe {
@@ -64,8 +67,9 @@ pub extern "C" fn rust_main() -> ! {
         exceptions::init();
         uart_write("vectors: installed\n");
     }
+    uart_write("heap: 1 MiB arena ready\n");
 
-    monitor::run(); // hand control to the interactive monitor
+    monitor::run();
 }
 
 #[panic_handler]
