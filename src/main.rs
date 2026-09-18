@@ -7,6 +7,7 @@ extern crate alloc;
 mod exceptions;
 mod monitor;
 mod heap;
+mod framebuffer;
 
 use core::{
     arch::{asm, global_asm},
@@ -46,7 +47,7 @@ fn uart_putc(byte: u8) {
         write_volatile(UART_DR as *mut u32, byte as u32);
     }
 }
-fn uart_write(text: &str) {
+pub fn uart_write(text: &str) {
     for byte in text.bytes() {
         if byte == b'\n' { uart_putc(b'\r'); }
         uart_putc(byte);
@@ -68,6 +69,11 @@ pub extern "C" fn rust_main() -> ! {
         uart_write("vectors: installed\n");
     }
     uart_write("heap: 1 MiB arena ready\n");
+    unsafe {
+        if framebuffer::init() {
+            framebuffer::clear(0x0000_FF00);
+        }
+    }
 
     monitor::run();
 }
