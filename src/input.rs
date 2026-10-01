@@ -430,6 +430,18 @@ pub unsafe fn init() {
             }
         };
 
+        if let Ok(name) = driver.name() {
+            crate::uart_write("input: device = ");
+            crate::uart_write(&name);
+            crate::uart_write("\n");
+
+            if name.as_bytes().windows(8).any(|w| w == b"Keyboard") && s.keyboard.is_none() {
+                s.keyboard = Some(driver);
+                crate::uart_write("input: VirtIO keyboard online\n");
+                continue;
+            }
+        }
+
         crate::uart_write("input: querying ABS axes\n");
         let xinfo = driver.abs_info(ABS_X as u8);
         let yinfo = driver.abs_info(ABS_Y as u8);
@@ -445,7 +457,7 @@ pub unsafe fn init() {
             }
             _ if s.keyboard.is_none() => {
                 s.keyboard = Some(driver);
-                crate::uart_write("input: VirtIO keyboard online\n");
+                crate::uart_write("input: unnamed VirtIO keyboard online\n");
             }
             _ => {
                 crate::uart_write("input: extra VirtIO input device ignored\n");
