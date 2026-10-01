@@ -47,7 +47,10 @@ static mut CURSOR_Y: i32 = CONSOLE_Y0;
 static mut POINTER_X: i32 = 400;
 static mut POINTER_Y: i32 = 300;
 static mut POINTER_DOWN: bool = false;
+static mut POINTER_RIGHT: bool = false;
+static mut POINTER_MIDDLE: bool = false;
 static mut POINTER_VISIBLE: bool = false;
+static mut TERMINAL_FOCUSED: bool = true;
 
 #[inline(always)]
 fn lerp_u8(a: u8, b: u8, t: u32, max: u32) -> u8 {
@@ -183,7 +186,15 @@ unsafe fn draw_pointer_overlay() {
         return;
     }
 
-    let fill = if POINTER_DOWN { GREEN } else { 0xf4f7fb };
+    let fill = if POINTER_RIGHT {
+        RED
+    } else if POINTER_MIDDLE {
+        YELLOW
+    } else if POINTER_DOWN {
+        GREEN
+    } else {
+        0xf4f7fb
+    };
     let outline = 0x05070a;
 
     for row in 0..POINTER_H {
@@ -212,18 +223,55 @@ unsafe fn draw_pointer_overlay() {
     }
 }
 
+#[inline(always)]
+fn point_in(x: i32, y: i32, rx: i32, ry: i32, rw: i32, rh: i32) -> bool {
+    x >= rx && y >= ry && x < rx + rw && y < ry + rh
+}
+
+unsafe fn draw_focus_ring_live() {
+    framebuffer::stroke_rect_live(
+        TERM_X,
+        TERM_Y,
+        TERM_W,
+        TERM_H,
+        if TERMINAL_FOCUSED { GREEN } else { 0x1d2632 },
+    );
+}
+
+pub unsafe fn focus_terminal() {
+    if !READY || TERMINAL_FOCUSED {
+        return;
+    }
+
+    restore_pointer_underlay();
+    TERMINAL_FOCUSED = true;
+    draw_focus_ring_live();
+    draw_pointer_overlay();
+}
+
+pub fn terminal_focused() -> bool {
+    unsafe { TERMINAL_FOCUSED }
+}
+
 pub unsafe fn pointer_update(x: i32, y: i32, down: bool) {
+    pointer_event(x, y, down, false, false);
+}
+
+pub unsafe fn pointer_event(x: i32, y: i32, left: bool, right: bool, middle: bool) {
     if !READY {
         return;
     }
 
     let next_x = x.clamp(0, framebuffer::FB_W as i32 - 1);
     let next_y = y.clamp(0, framebuffer::FB_H as i32 - 1);
+    let left_pressed = left && !POINTER_DOWN;
 
     if POINTER_VISIBLE
         && next_x == POINTER_X
         && next_y == POINTER_Y
-        && down == POINTER_DOWN
+        && left == POINTER_DOWN
+        && right == POINTER_RIGHT
+        && middle == POINTER_MIDDLE
     {
         return;
     }
@@ -232,8 +280,20 @@ pub unsafe fn pointer_update(x: i32, y: i32, down: bool) {
 
     POINTER_X = next_x;
     POINTER_Y = next_y;
-    POINTER_DOWN = down;
+    POINTER_DOWN = left;
+    POINTER_RIGHT = right;
+    POINTER_MIDDLE = middle;
     POINTER_VISIBLE = true;
+
+    if left_pressed {
+        let focused = point_in(next_x, next_y, WIN_X, WIN_Y, WIN_W, WIN_H)
+            || point_in(next_x, next_y, 282, 548, 236, 36);
+
+        if focused != TERMINAL_FOCUSED {
+            TERMINAL_FOCUSED = focused;
+            draw_focus_ring_live();
+        }
+    }
 
     draw_pointer_overlay();
 }
