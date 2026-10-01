@@ -352,6 +352,17 @@ pub unsafe fn stroke_rect(x: i32, y: i32, w: i32, h: i32, color: u32) {
     fill_rect(x + w - 1, y, 1, h, color);
 }
 
+pub unsafe fn stroke_rect_live(x: i32, y: i32, w: i32, h: i32, color: u32) {
+    if w <= 1 || h <= 1 {
+        return;
+    }
+
+    fill_rect_live(x, y, w, 1, color);
+    fill_rect_live(x, y + h - 1, w, 1, color);
+    fill_rect_live(x, y, 1, h, color);
+    fill_rect_live(x + w - 1, y, 1, h, color);
+}
+
 pub unsafe fn fill_circle(cx: i32, cy: i32, radius: i32, color: u32) {
     if radius <= 0 {
         return;
