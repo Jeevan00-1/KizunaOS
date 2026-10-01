@@ -19,33 +19,36 @@ const GREEN: u32 = 0x5fd38d;
 const RED: u32 = 0xff6b6b;
 const YELLOW: u32 = 0xf6c85f;
 
-const WIN_X: i32 = 66;
-const WIN_Y: i32 = 72;
-const WIN_W: i32 = 668;
-const WIN_H: i32 = 446;
-const TITLE_H: i32 = 42;
+const WIN_X: i32 = 110;
+const WIN_Y: i32 = 90;
+const WIN_W: i32 = 1060;
+const WIN_H: i32 = 610;
+const TITLE_H: i32 = 52;
 
-const TERM_X: i32 = 88;
-const TERM_Y: i32 = 132;
-const TERM_W: i32 = 624;
-const TERM_H: i32 = 352;
-const TERM_PAD_X: i32 = 14;
-const TERM_PAD_Y: i32 = 14;
+const TERM_X: i32 = 145;
+const TERM_Y: i32 = 165;
+const TERM_W: i32 = 990;
+const TERM_H: i32 = 470;
+const TERM_PAD_X: i32 = 20;
+const TERM_PAD_Y: i32 = 20;
 
 const CONSOLE_X0: i32 = TERM_X + TERM_PAD_X;
 const CONSOLE_Y0: i32 = TERM_Y + TERM_PAD_Y;
 const CONSOLE_RIGHT: i32 = TERM_X + TERM_W - TERM_PAD_X;
 const CONSOLE_BOTTOM: i32 = TERM_Y + TERM_H - TERM_PAD_Y;
 
-const POINTER_W: i32 = 13;
-const POINTER_H: i32 = 19;
+const POINTER_BASE_W: i32 = 13;
+const POINTER_BASE_H: i32 = 19;
+const POINTER_SCALE: i32 = 2;
+const POINTER_W: i32 = POINTER_BASE_W * POINTER_SCALE;
+const POINTER_H: i32 = POINTER_BASE_H * POINTER_SCALE;
 
 static mut READY: bool = false;
 static mut CURSOR_X: i32 = CONSOLE_X0;
 static mut CURSOR_Y: i32 = CONSOLE_Y0;
 
-static mut POINTER_X: i32 = 400;
-static mut POINTER_Y: i32 = 300;
+static mut POINTER_X: i32 = 640;
+static mut POINTER_Y: i32 = 400;
 static mut POINTER_DOWN: bool = false;
 static mut POINTER_RIGHT: bool = false;
 static mut POINTER_MIDDLE: bool = false;
@@ -89,10 +92,10 @@ unsafe fn draw_desktop_chrome() {
         framebuffer::fill_rect(0, y as i32, framebuffer::FB_W as i32, 1, gradient_row(y));
     }
 
-    framebuffer::fill_rect(0, 0, framebuffer::FB_W as i32, 40, 0x0a0e13);
-    framebuffer::fill_rect(0, 39, framebuffer::FB_W as i32, 1, BORDER);
-    graphics::draw_text(18, 11, "KIZUNA OS", TEXT);
-    graphics::draw_text(575, 11, "AARCH64  /  EL1", MUTED);
+    framebuffer::fill_rect(0, 0, framebuffer::FB_W as i32, 52, 0x0a0e13);
+    framebuffer::fill_rect(0, 51, framebuffer::FB_W as i32, 1, BORDER);
+    graphics::draw_text(28, 15, "KIZUNA OS", TEXT);
+    graphics::draw_text(1020, 15, "AARCH64  /  EL1", MUTED);
 
     framebuffer::fill_rect(WIN_X + 8, WIN_Y + 10, WIN_W, WIN_H, 0x05070a);
     framebuffer::fill_rect(WIN_X, WIN_Y, WIN_W, WIN_H, PANEL);
@@ -100,23 +103,23 @@ unsafe fn draw_desktop_chrome() {
 
     framebuffer::fill_rect(WIN_X + 1, WIN_Y + 1, WIN_W - 2, TITLE_H, PANEL_2);
     framebuffer::fill_rect(WIN_X + 1, WIN_Y + TITLE_H, WIN_W - 2, 1, BORDER);
-    graphics::draw_text(WIN_X + 18, WIN_Y + 13, "Terminal", TEXT);
+    graphics::draw_text(WIN_X + 24, WIN_Y + 16, "Terminal", TEXT);
 
-    framebuffer::fill_circle(WIN_X + WIN_W - 68, WIN_Y + 21, 5, RED);
-    framebuffer::fill_circle(WIN_X + WIN_W - 48, WIN_Y + 21, 5, YELLOW);
-    framebuffer::fill_circle(WIN_X + WIN_W - 28, WIN_Y + 21, 5, GREEN);
+    framebuffer::fill_circle(WIN_X + WIN_W - 84, WIN_Y + 26, 6, RED);
+    framebuffer::fill_circle(WIN_X + WIN_W - 56, WIN_Y + 26, 6, YELLOW);
+    framebuffer::fill_circle(WIN_X + WIN_W - 28, WIN_Y + 26, 6, GREEN);
 
     framebuffer::fill_rect(TERM_X, TERM_Y, TERM_W, TERM_H, TERMINAL_BG);
     framebuffer::stroke_rect(TERM_X, TERM_Y, TERM_W, TERM_H, 0x1d2632);
 
-    framebuffer::fill_rect(282, 548, 236, 36, 0x10161e);
-    framebuffer::stroke_rect(282, 548, 236, 36, BORDER);
-    framebuffer::fill_circle(307, 566, 10, ACCENT);
-    graphics::draw_text(303, 558, "K", 0x11161d);
-    graphics::draw_text(333, 557, "Terminal", TEXT);
-    graphics::draw_text(430, 557, "0.1.0a", MUTED);
+    framebuffer::fill_rect(455, 730, 370, 48, 0x10161e);
+    framebuffer::stroke_rect(455, 730, 370, 48, BORDER);
+    framebuffer::fill_circle(486, 754, 13, ACCENT);
+    graphics::draw_text(478, 742, "K", 0x11161d);
+    graphics::draw_text(525, 741, "Terminal", TEXT);
+    graphics::draw_text(705, 741, "0.1.0a", MUTED);
 
-    framebuffer::fill_circle(549, 20, 4, GREEN);
+    framebuffer::fill_circle(992, 26, 5, GREEN);
 }
 
 unsafe fn draw_boot_card() {
@@ -148,7 +151,7 @@ unsafe fn draw_boot_card() {
     CURSOR_Y = y;
 }
 
-const CURSOR_MASK: [u16; POINTER_H as usize] = [
+const CURSOR_MASK: [u16; POINTER_BASE_H as usize] = [
     0b1000000000000,
     0b1100000000000,
     0b1110000000000,
@@ -197,28 +200,33 @@ unsafe fn draw_pointer_overlay() {
     };
     let outline = 0x05070a;
 
-    for row in 0..POINTER_H {
+    for row in 0..POINTER_BASE_H {
         let mask = CURSOR_MASK[row as usize];
-        for col in 0..POINTER_W {
-            let bit = 1u16 << (POINTER_W - 1 - col);
+        for col in 0..POINTER_BASE_W {
+            let bit = 1u16 << (POINTER_BASE_W - 1 - col);
             if mask & bit == 0 {
                 continue;
             }
 
             let edge = row == 0
                 || col == 0
-                || row == POINTER_H - 1
-                || col == POINTER_W - 1
+                || row == POINTER_BASE_H - 1
+                || col == POINTER_BASE_W - 1
                 || (row > 0 && CURSOR_MASK[(row - 1) as usize] & bit == 0)
-                || (row + 1 < POINTER_H && CURSOR_MASK[(row + 1) as usize] & bit == 0)
+                || (row + 1 < POINTER_BASE_H && CURSOR_MASK[(row + 1) as usize] & bit == 0)
                 || (col > 0 && mask & (bit << 1) == 0)
-                || (col + 1 < POINTER_W && mask & (bit >> 1) == 0);
+                || (col + 1 < POINTER_BASE_W && mask & (bit >> 1) == 0);
 
-            framebuffer::put_pixel_front(
-                POINTER_X + col,
-                POINTER_Y + row,
-                if edge { outline } else { fill },
-            );
+            let color = if edge { outline } else { fill };
+            for sy in 0..POINTER_SCALE {
+                for sx in 0..POINTER_SCALE {
+                    framebuffer::put_pixel_front(
+                        POINTER_X + col * POINTER_SCALE + sx,
+                        POINTER_Y + row * POINTER_SCALE + sy,
+                        color,
+                    );
+                }
+            }
         }
     }
 }
@@ -287,7 +295,7 @@ pub unsafe fn pointer_event(x: i32, y: i32, left: bool, right: bool, middle: boo
 
     if left_pressed {
         let focused = point_in(next_x, next_y, WIN_X, WIN_Y, WIN_W, WIN_H)
-            || point_in(next_x, next_y, 282, 548, 236, 36);
+            || point_in(next_x, next_y, 455, 730, 370, 48);
 
         if focused != TERMINAL_FOCUSED {
             TERMINAL_FOCUSED = focused;
