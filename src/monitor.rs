@@ -323,6 +323,12 @@ fn cmd_input() {
     puts(if crate::input::has_pointer() { "online\n" } else { "missing\n" });
     puts("  terminal : ");
     puts(if crate::desktop::terminal_focused() { "focused\n" } else { "unfocused\n" });
+    puts("  key events     : ");
+    put_hex64(crate::input::keyboard_event_count() as u64);
+    puts("\n");
+    puts("  pointer events : ");
+    put_hex64(crate::input::pointer_event_count() as u64);
+    puts("\n");
     puts("keys: arrows edit/history, Ctrl+A/E, Ctrl+U, Ctrl+C, Ctrl+L\n");
     puts("global: Ctrl+Alt+T focuses Terminal\n");
 }
