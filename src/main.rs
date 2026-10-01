@@ -11,6 +11,7 @@ mod framebuffer;
 mod graphics;
 mod heap;
 mod input;
+mod mmu;
 mod monitor;
 
 use core::{
@@ -38,6 +39,10 @@ _start:
     adrp x0, __stack_top
     add  x0, x0, :lo12:__stack_top
     mov  sp, x0
+
+    // Establish proper memory attributes before Rust touches BSS, the heap,
+    // atomics or VirtIO rings. TCG was permissive here; HVF is not.
+    bl kizuna_mmu_early_init
 
     bl rust_main
 1:
@@ -88,6 +93,7 @@ pub extern "C" fn rust_main() -> ! {
     uart_write("========================================\n");
     uart_write("AArch64 Kernel v0.1.0-desktop-alpha\n\n");
     uart_write("boot: bss cleared\n");
+    mmu::report();
 
     unsafe {
         exceptions::report_el();
