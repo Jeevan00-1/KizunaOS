@@ -1,6 +1,5 @@
 // KizunaOS desktop-alpha shell.
-// This is deliberately a kernel-resident shell for now. The v0.1.x path moves
-// applications to EL0 once MMU/userspace/syscalls land.
+// Kernel-resident for now; applications move to EL0 after MMU + syscalls.
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::{framebuffer, graphics};
@@ -38,9 +37,17 @@ const CONSOLE_Y0: i32 = TERM_Y + TERM_PAD_Y;
 const CONSOLE_RIGHT: i32 = TERM_X + TERM_W - TERM_PAD_X;
 const CONSOLE_BOTTOM: i32 = TERM_Y + TERM_H - TERM_PAD_Y;
 
+const POINTER_W: i32 = 13;
+const POINTER_H: i32 = 19;
+
 static mut READY: bool = false;
 static mut CURSOR_X: i32 = CONSOLE_X0;
 static mut CURSOR_Y: i32 = CONSOLE_Y0;
+
+static mut POINTER_X: i32 = 400;
+static mut POINTER_Y: i32 = 300;
+static mut POINTER_DOWN: bool = false;
+static mut POINTER_VISIBLE: bool = false;
 
 #[inline(always)]
 fn lerp_u8(a: u8, b: u8, t: u32, max: u32) -> u8 {
@@ -79,18 +86,15 @@ unsafe fn draw_desktop_chrome() {
         framebuffer::fill_rect(0, y as i32, framebuffer::FB_W as i32, 1, gradient_row(y));
     }
 
-    // Top system bar.
     framebuffer::fill_rect(0, 0, framebuffer::FB_W as i32, 40, 0x0a0e13);
     framebuffer::fill_rect(0, 39, framebuffer::FB_W as i32, 1, BORDER);
     graphics::draw_text(18, 11, "KIZUNA OS", TEXT);
     graphics::draw_text(575, 11, "AARCH64  /  EL1", MUTED);
 
-    // Main window shadow + body.
     framebuffer::fill_rect(WIN_X + 8, WIN_Y + 10, WIN_W, WIN_H, 0x05070a);
     framebuffer::fill_rect(WIN_X, WIN_Y, WIN_W, WIN_H, PANEL);
     framebuffer::stroke_rect(WIN_X, WIN_Y, WIN_W, WIN_H, BORDER);
 
-    // Title bar.
     framebuffer::fill_rect(WIN_X + 1, WIN_Y + 1, WIN_W - 2, TITLE_H, PANEL_2);
     framebuffer::fill_rect(WIN_X + 1, WIN_Y + TITLE_H, WIN_W - 2, 1, BORDER);
     graphics::draw_text(WIN_X + 18, WIN_Y + 13, "Terminal", TEXT);
@@ -99,11 +103,9 @@ unsafe fn draw_desktop_chrome() {
     framebuffer::fill_circle(WIN_X + WIN_W - 48, WIN_Y + 21, 5, YELLOW);
     framebuffer::fill_circle(WIN_X + WIN_W - 28, WIN_Y + 21, 5, GREEN);
 
-    // Terminal viewport.
     framebuffer::fill_rect(TERM_X, TERM_Y, TERM_W, TERM_H, TERMINAL_BG);
     framebuffer::stroke_rect(TERM_X, TERM_Y, TERM_W, TERM_H, 0x1d2632);
 
-    // Dock / shell footer.
     framebuffer::fill_rect(282, 548, 236, 36, 0x10161e);
     framebuffer::stroke_rect(282, 548, 236, 36, BORDER);
     framebuffer::fill_circle(307, 566, 10, ACCENT);
@@ -111,9 +113,7 @@ unsafe fn draw_desktop_chrome() {
     graphics::draw_text(333, 557, "Terminal", TEXT);
     graphics::draw_text(430, 557, "0.1.0a", MUTED);
 
-    // Small status dot and label.
     framebuffer::fill_circle(549, 20, 4, GREEN);
-    graphics::draw_text(559, 11, " ", MUTED);
 }
 
 unsafe fn draw_boot_card() {
@@ -143,6 +143,88 @@ unsafe fn draw_boot_card() {
 
     CURSOR_X = CONSOLE_X0;
     CURSOR_Y = y;
+}
+
+const CURSOR_MASK: [u16; POINTER_H as usize] = [
+    0b1000000000000,
+    0b1100000000000,
+    0b1110000000000,
+    0b1111000000000,
+    0b1111100000000,
+    0b1111110000000,
+    0b1111111000000,
+    0b1111111100000,
+    0b1111111110000,
+    0b1111111111000,
+    0b1111110000000,
+    0b1110110000000,
+    0b1100110000000,
+    0b1000011000000,
+    0b0000011000000,
+    0b0000001100000,
+    0b0000001100000,
+    0,
+    0,
+];
+
+unsafe fn restore_pointer_underlay() {
+    if POINTER_VISIBLE {
+        framebuffer::restore_front_from_back(
+            POINTER_X - 1,
+            POINTER_Y - 1,
+            POINTER_W + 2,
+            POINTER_H + 2,
+        );
+    }
+}
+
+unsafe fn draw_pointer_overlay() {
+    if !POINTER_VISIBLE {
+        return;
+    }
+
+    let fill = if POINTER_DOWN { GREEN } else { 0xf4f7fb };
+    let outline = 0x05070a;
+
+    for row in 0..POINTER_H {
+        let mask = CURSOR_MASK[row as usize];
+        for col in 0..POINTER_W {
+            let bit = 1u16 << (POINTER_W - 1 - col);
+            if mask & bit == 0 {
+                continue;
+            }
+
+            let edge = row == 0
+                || col == 0
+                || row == POINTER_H - 1
+                || col == POINTER_W - 1
+                || (row > 0 && CURSOR_MASK[(row - 1) as usize] & bit == 0)
+                || (row + 1 < POINTER_H && CURSOR_MASK[(row + 1) as usize] & bit == 0)
+                || (col > 0 && mask & (bit << 1) == 0)
+                || (col + 1 < POINTER_W && mask & (bit >> 1) == 0);
+
+            framebuffer::put_pixel_front(
+                POINTER_X + col,
+                POINTER_Y + row,
+                if edge { outline } else { fill },
+            );
+        }
+    }
+}
+
+pub unsafe fn pointer_update(x: i32, y: i32, down: bool) {
+    if !READY {
+        return;
+    }
+
+    restore_pointer_underlay();
+
+    POINTER_X = x.clamp(0, framebuffer::FB_W as i32 - 1);
+    POINTER_Y = y.clamp(0, framebuffer::FB_H as i32 - 1);
+    POINTER_DOWN = down;
+    POINTER_VISIBLE = true;
+
+    draw_pointer_overlay();
 }
 
 pub unsafe fn init() {
@@ -179,6 +261,8 @@ pub unsafe fn console_clear() {
         return;
     }
 
+    restore_pointer_underlay();
+
     framebuffer::fill_rect_live(
         CONSOLE_X0,
         CONSOLE_Y0,
@@ -189,6 +273,8 @@ pub unsafe fn console_clear() {
 
     CURSOR_X = CONSOLE_X0;
     CURSOR_Y = CONSOLE_Y0;
+
+    draw_pointer_overlay();
 }
 
 pub unsafe fn console_putc(byte: u8) {
@@ -196,12 +282,12 @@ pub unsafe fn console_putc(byte: u8) {
         return;
     }
 
+    restore_pointer_underlay();
+
     let cw = graphics::char_width();
 
     match byte {
-        b'\r' => {
-            CURSOR_X = CONSOLE_X0;
-        }
+        b'\r' => CURSOR_X = CONSOLE_X0,
         b'\n' => {
             CURSOR_X = CONSOLE_X0;
             CURSOR_Y += graphics::line_height();
@@ -236,18 +322,16 @@ pub unsafe fn console_putc(byte: u8) {
         }
         _ => {}
     }
-}
 
-pub unsafe fn console_write(text: &str) {
-    for b in text.bytes() {
-        console_putc(b);
-    }
+    draw_pointer_overlay();
 }
 
 pub unsafe fn panic_screen() {
     if !framebuffer::is_ready() {
         return;
     }
+
+    POINTER_VISIBLE = false;
 
     framebuffer::begin_frame(0x12090b);
     framebuffer::fill_rect(0, 0, framebuffer::FB_W as i32, 6, RED);
