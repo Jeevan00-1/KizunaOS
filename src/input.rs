@@ -17,10 +17,6 @@ use virtio_drivers::{
     BufferDirection, Hal, PhysAddr, PAGE_SIZE,
 };
 
-const VIRTIO_MMIO_BASE: usize = 0x0a00_0000;
-const VIRTIO_MMIO_STRIDE: usize = 0x200;
-const VIRTIO_MMIO_SLOTS: usize = 32;
-
 const EV_SYN: u16 = 0x00;
 const EV_KEY: u16 = 0x01;
 const EV_ABS: u16 = 0x03;
@@ -398,18 +394,20 @@ pub unsafe fn init() {
     crate::uart_write("input: init begin\n");
     let s = state();
 
-    for slot in 0..VIRTIO_MMIO_SLOTS {
+    let (regions, region_count) = crate::devicetree::virtio_mmio_regions();
+    crate::uart_write("input: scanning DTB-described VirtIO transports\n");
+
+    for region in regions.iter().take(region_count) {
         if s.pointer.is_some() && s.keyboard.is_some() {
             break;
         }
 
-        let addr = VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE;
-        let Some(header) = NonNull::new(addr as *mut VirtIOHeader) else {
+        let Some(header) = NonNull::new(region.base as *mut VirtIOHeader) else {
             continue;
         };
 
         let transport: MmioTransport<'static> =
-            match MmioTransport::new(header, VIRTIO_MMIO_STRIDE) {
+            match MmioTransport::new(header, region.size) {
                 Ok(t) => t,
                 Err(_) => continue,
             };
