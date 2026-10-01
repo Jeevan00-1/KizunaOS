@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 noto-sans-mono-bitmap = "0.3.2"
+virtio-drivers = { version = "0.13.0", default-features = false, features = ["alloc"] }
 
 [profile.dev]
 panic = "abort"
