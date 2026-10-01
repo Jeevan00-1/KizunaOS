@@ -162,7 +162,7 @@ fn push_history(state: &mut MonitorState, line: &[u8]) {
     // Do not duplicate the newest command.
     if state.history_count > 0 {
         let newest_len = state.history_len[0];
-        if newest_len == line.len() && state.history[0][..newest_len] == *line {
+        if newest_len == line.len() && state.history[0][..newest_len] == line[..] {
             state.history_nav = 0;
             return;
         }
