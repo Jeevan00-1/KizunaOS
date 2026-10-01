@@ -29,11 +29,55 @@ const SYN_REPORT: u16 = 0;
 const ABS_X: u16 = 0x00;
 const ABS_Y: u16 = 0x01;
 const BTN_LEFT: u16 = 0x110;
+const BTN_RIGHT: u16 = 0x111;
+const BTN_MIDDLE: u16 = 0x112;
 
+const KEY_ESC: u16 = 1;
+const KEY_BACKSPACE: u16 = 14;
+const KEY_TAB: u16 = 15;
+const KEY_ENTER: u16 = 28;
+const KEY_LEFTCTRL: u16 = 29;
 const KEY_LEFTSHIFT: u16 = 42;
-const KEY_RIGHTSHIFT: u16 = 54;
+const KEY_LEFTALT: u16 = 56;
+const KEY_CAPSLOCK: u16 = 58;
+const KEY_RIGHTCTRL: u16 = 97;
+const KEY_RIGHTALT: u16 = 100;
+const KEY_HOME: u16 = 102;
+const KEY_UP: u16 = 103;
+const KEY_LEFT: u16 = 105;
+const KEY_RIGHT: u16 = 106;
+const KEY_END: u16 = 107;
+const KEY_DOWN: u16 = 108;
+const KEY_DELETE: u16 = 111;
+const KEY_LEFTMETA: u16 = 125;
+const KEY_RIGHTMETA: u16 = 126;
 
 const DMA_POOL_BYTES: usize = 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Key {
+    Char(u8),
+    Enter,
+    Backspace,
+    Tab,
+    Escape,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    Delete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KeyEvent {
+    pub key: Key,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub meta: bool,
+}
 
 #[repr(align(4096))]
 struct DmaPool {
@@ -113,9 +157,18 @@ struct InputState {
     raw_x: u32,
     raw_y: u32,
     left_down: bool,
+    right_down: bool,
+    middle_down: bool,
 
     left_shift: bool,
     right_shift: bool,
+    left_ctrl: bool,
+    right_ctrl: bool,
+    left_alt: bool,
+    right_alt: bool,
+    left_meta: bool,
+    right_meta: bool,
+    caps_lock: bool,
 }
 
 impl InputState {
@@ -140,8 +193,17 @@ impl InputState {
             raw_x: 0,
             raw_y: 0,
             left_down: false,
+            right_down: false,
+            middle_down: false,
             left_shift: false,
             right_shift: false,
+            left_ctrl: false,
+            right_ctrl: false,
+            left_alt: false,
+            right_alt: false,
+            left_meta: false,
+            right_meta: false,
+            caps_lock: false,
         }
     }
 }
@@ -166,9 +228,9 @@ fn scale_axis(value: u32, info: &AbsInfo, extent: usize) -> i32 {
     ((clamped as u64 * (extent as u64 - 1)) / span as u64) as i32
 }
 
-fn key_to_ascii(code: u16, shift: bool) -> Option<u8> {
+fn key_to_ascii(code: u16, shift: bool, caps_lock: bool) -> Option<u8> {
     let letter = |lower: u8| {
-        if shift {
+        if shift ^ caps_lock {
             lower.to_ascii_uppercase()
         } else {
             lower
@@ -237,6 +299,8 @@ unsafe fn handle_pointer_event(s: &mut InputState, ev: InputEvent) -> bool {
         (EV_ABS, ABS_X) => s.raw_x = ev.value,
         (EV_ABS, ABS_Y) => s.raw_y = ev.value,
         (EV_KEY, BTN_LEFT) => s.left_down = ev.value != 0,
+        (EV_KEY, BTN_RIGHT) => s.right_down = ev.value != 0,
+        (EV_KEY, BTN_MIDDLE) => s.middle_down = ev.value != 0,
         (EV_SYN, SYN_REPORT) => return true,
         _ => {}
     }
@@ -248,13 +312,47 @@ unsafe fn handle_keyboard_event(s: &mut InputState, ev: InputEvent) {
         return;
     }
 
-    if ev.code == KEY_LEFTSHIFT {
-        s.left_shift = ev.value != 0;
-        return;
-    }
-    if ev.code == KEY_RIGHTSHIFT {
-        s.right_shift = ev.value != 0;
-        return;
+    let down = ev.value != 0;
+
+    match ev.code {
+        KEY_LEFTSHIFT => {
+            s.left_shift = down;
+            return;
+        }
+        KEY_RIGHTSHIFT => {
+            s.right_shift = down;
+            return;
+        }
+        KEY_LEFTCTRL => {
+            s.left_ctrl = down;
+            return;
+        }
+        KEY_RIGHTCTRL => {
+            s.right_ctrl = down;
+            return;
+        }
+        KEY_LEFTALT => {
+            s.left_alt = down;
+            return;
+        }
+        KEY_RIGHTALT => {
+            s.right_alt = down;
+            return;
+        }
+        KEY_LEFTMETA => {
+            s.left_meta = down;
+            return;
+        }
+        KEY_RIGHTMETA => {
+            s.right_meta = down;
+            return;
+        }
+        KEY_CAPSLOCK if ev.value == 1 => {
+            s.caps_lock = !s.caps_lock;
+            return;
+        }
+        KEY_CAPSLOCK => return,
+        _ => {}
     }
 
     // value 0 = release, 1 = press, 2 = repeat
@@ -263,9 +361,37 @@ unsafe fn handle_keyboard_event(s: &mut InputState, ev: InputEvent) {
     }
 
     let shift = s.left_shift || s.right_shift;
-    if let Some(byte) = key_to_ascii(ev.code, shift) {
-        crate::monitor::feed_input(byte);
-    }
+    let ctrl = s.left_ctrl || s.right_ctrl;
+    let alt = s.left_alt || s.right_alt;
+    let meta = s.left_meta || s.right_meta;
+
+    let key = match ev.code {
+        KEY_ENTER => Key::Enter,
+        KEY_BACKSPACE => Key::Backspace,
+        KEY_TAB => Key::Tab,
+        KEY_ESC => Key::Escape,
+        KEY_UP => Key::Up,
+        KEY_DOWN => Key::Down,
+        KEY_LEFT => Key::Left,
+        KEY_RIGHT => Key::Right,
+        KEY_HOME => Key::Home,
+        KEY_END => Key::End,
+        KEY_DELETE => Key::Delete,
+        code => {
+            let Some(byte) = key_to_ascii(code, shift, s.caps_lock) else {
+                return;
+            };
+            Key::Char(byte)
+        }
+    };
+
+    crate::monitor::handle_key(KeyEvent {
+        key,
+        ctrl,
+        alt,
+        shift,
+        meta,
+    });
 }
 
 pub unsafe fn init() {
@@ -358,7 +484,13 @@ pub unsafe fn poll() {
     if pointer_dirty {
         let x = scale_axis(s.raw_x, &s.abs_x, crate::framebuffer::FB_W);
         let y = scale_axis(s.raw_y, &s.abs_y, crate::framebuffer::FB_H);
-        crate::desktop::pointer_update(x, y, s.left_down);
+        crate::desktop::pointer_event(
+            x,
+            y,
+            s.left_down,
+            s.right_down,
+            s.middle_down,
+        );
     }
 
     if let Some(driver) = s.pointer.as_mut() {
