@@ -1,19 +1,19 @@
 // KizunaOS framebuffer + software backbuffer for QEMU ramfb.
-// v0.1.0 desktop-alpha: render off-screen, present once, then allow live console updates.
+// The backbuffer is authoritative. The mouse cursor is a frontbuffer-only overlay.
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use core::ptr::{addr_of_mut, copy, copy_nonoverlapping, read_volatile, write_volatile};
 
 const FW_CFG_BASE: usize = 0x0902_0000;
-const FW_CFG_DMA: usize  = FW_CFG_BASE + 0x10;
+const FW_CFG_DMA: usize = FW_CFG_BASE + 0x10;
 const FW_CFG_FILE_DIR: u16 = 0x0019;
 
-const CTL_ERROR:  u32 = 0x01;
-const CTL_READ:   u32 = 0x02;
+const CTL_ERROR: u32 = 0x01;
+const CTL_READ: u32 = 0x02;
 const CTL_SELECT: u32 = 0x08;
-const CTL_WRITE:  u32 = 0x10;
+const CTL_WRITE: u32 = 0x10;
 
-const FOURCC_XRGB8888: u32 = 0x3432_5258; // 'XR24'
+const FOURCC_XRGB8888: u32 = 0x3432_5258;
 
 pub const FB_W: usize = 800;
 pub const FB_H: usize = 600;
@@ -65,11 +65,7 @@ unsafe fn phex(label: &str, val: u64) {
     buf[1] = b'x';
     for i in 0..16 {
         let nib = ((val >> ((15 - i) * 4)) & 0xf) as u8;
-        buf[2 + i] = if nib < 10 {
-            b'0' + nib
-        } else {
-            b'a' + (nib - 10)
-        };
+        buf[2 + i] = if nib < 10 { b'0' + nib } else { b'a' + (nib - 10) };
     }
     if let Ok(s) = core::str::from_utf8(&buf) {
         crate::uart_write(s);
@@ -221,6 +217,36 @@ pub unsafe fn put_pixel_live(x: i32, y: i32, color: u32) {
 }
 
 #[inline(always)]
+pub unsafe fn put_pixel_front(x: i32, y: i32, color: u32) {
+    if let Some(i) = clipped_index(x, y) {
+        write_volatile(front_ptr().add(i), color);
+    }
+}
+
+pub unsafe fn restore_front_from_back(x: i32, y: i32, w: i32, h: i32) {
+    if w <= 0 || h <= 0 {
+        return;
+    }
+
+    let x0 = x.max(0);
+    let y0 = y.max(0);
+    let x1 = (x + w).min(FB_W as i32);
+    let y1 = (y + h).min(FB_H as i32);
+
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let width = (x1 - x0) as usize;
+    for yy in y0..y1 {
+        let i = yy as usize * FB_W + x0 as usize;
+        copy_nonoverlapping(back_ptr().add(i), front_ptr().add(i), width);
+    }
+
+    core::arch::asm!("dsb sy");
+}
+
+#[inline(always)]
 fn blend_channel(dst: u8, src: u8, alpha: u8) -> u8 {
     let a = alpha as u32;
     (((src as u32 * a) + (dst as u32 * (255 - a))) / 255) as u8
@@ -342,8 +368,6 @@ pub unsafe fn fill_circle(cx: i32, cy: i32, radius: i32, color: u32) {
     }
 }
 
-/// Scroll a live rectangular region upward by dy pixels.
-/// The backbuffer remains authoritative and the visible ramfb is kept in sync.
 pub unsafe fn scroll_rect_up_live(
     x: i32,
     y: i32,
