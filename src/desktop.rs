@@ -217,10 +217,21 @@ pub unsafe fn pointer_update(x: i32, y: i32, down: bool) {
         return;
     }
 
+    let next_x = x.clamp(0, framebuffer::FB_W as i32 - 1);
+    let next_y = y.clamp(0, framebuffer::FB_H as i32 - 1);
+
+    if POINTER_VISIBLE
+        && next_x == POINTER_X
+        && next_y == POINTER_Y
+        && down == POINTER_DOWN
+    {
+        return;
+    }
+
     restore_pointer_underlay();
 
-    POINTER_X = x.clamp(0, framebuffer::FB_W as i32 - 1);
-    POINTER_Y = y.clamp(0, framebuffer::FB_H as i32 - 1);
+    POINTER_X = next_x;
+    POINTER_Y = next_y;
     POINTER_DOWN = down;
     POINTER_VISIBLE = true;
 
