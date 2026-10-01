@@ -15,8 +15,8 @@ const CTL_WRITE: u32 = 0x10;
 
 const FOURCC_XRGB8888: u32 = 0x3432_5258;
 
-pub const FB_W: usize = 800;
-pub const FB_H: usize = 600;
+pub const FB_W: usize = 1280;
+pub const FB_H: usize = 800;
 const PIXELS: usize = FB_W * FB_H;
 
 static mut FRONTBUFFER: [u32; PIXELS] = [0; PIXELS];
@@ -166,7 +166,7 @@ pub unsafe fn init() -> bool {
     }
 
     READY = true;
-    crate::uart_write("ramfb: 800x600 XRGB8888 online\n");
+    crate::uart_write("ramfb: 1280x800 XRGB8888 online\n");
     true
 }
 
