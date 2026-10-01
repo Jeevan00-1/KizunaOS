@@ -5,6 +5,7 @@
 extern crate alloc;
 
 mod desktop;
+mod devicetree;
 mod exceptions;
 mod framebuffer;
 mod graphics;
