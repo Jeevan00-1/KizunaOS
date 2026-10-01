@@ -11,7 +11,7 @@ use noto_sans_mono_bitmap::{
 use crate::framebuffer;
 
 const FONT_WEIGHT: FontWeight = FontWeight::Regular;
-const FONT_HEIGHT: RasterHeight = RasterHeight::Size16;
+const FONT_HEIGHT: RasterHeight = RasterHeight::Size20;
 
 #[inline(always)]
 pub fn char_width() -> i32 {
@@ -20,7 +20,7 @@ pub fn char_width() -> i32 {
 
 #[inline(always)]
 pub const fn line_height() -> i32 {
-    19
+    24
 }
 
 pub fn text_width(text: &str) -> i32 {
