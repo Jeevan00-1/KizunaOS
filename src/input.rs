@@ -232,18 +232,15 @@ fn key_to_ascii(code: u16, shift: bool) -> Option<u8> {
     })
 }
 
-unsafe fn handle_pointer_event(s: &mut InputState, ev: InputEvent) {
+unsafe fn handle_pointer_event(s: &mut InputState, ev: InputEvent) -> bool {
     match (ev.event_type, ev.code) {
         (EV_ABS, ABS_X) => s.raw_x = ev.value,
         (EV_ABS, ABS_Y) => s.raw_y = ev.value,
         (EV_KEY, BTN_LEFT) => s.left_down = ev.value != 0,
-        (EV_SYN, SYN_REPORT) => {
-            let x = scale_axis(s.raw_x, &s.abs_x, crate::framebuffer::FB_W);
-            let y = scale_axis(s.raw_y, &s.abs_y, crate::framebuffer::FB_H);
-            crate::desktop::pointer_update(x, y, s.left_down);
-        }
+        (EV_SYN, SYN_REPORT) => return true,
         _ => {}
     }
+    false
 }
 
 unsafe fn handle_keyboard_event(s: &mut InputState, ev: InputEvent) {
@@ -343,6 +340,10 @@ pub unsafe fn init() {
 pub unsafe fn poll() {
     let s = state();
 
+    // Drain the whole VirtIO batch first, then render the cursor once at the
+    // newest position. Without this, a burst of tablet reports redraws the
+    // cursor several times before QEMU even presents one host frame.
+    let mut pointer_dirty = false;
     loop {
         let event = match s.pointer.as_mut() {
             Some(driver) => driver.pop_pending_event(),
@@ -351,7 +352,13 @@ pub unsafe fn poll() {
         let Some(event) = event else {
             break;
         };
-        handle_pointer_event(s, event);
+        pointer_dirty |= handle_pointer_event(s, event);
+    }
+
+    if pointer_dirty {
+        let x = scale_axis(s.raw_x, &s.abs_x, crate::framebuffer::FB_W);
+        let y = scale_axis(s.raw_y, &s.abs_y, crate::framebuffer::FB_H);
+        crate::desktop::pointer_update(x, y, s.left_down);
     }
 
     if let Some(driver) = s.pointer.as_mut() {
