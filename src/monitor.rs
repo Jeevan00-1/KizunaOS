@@ -1,13 +1,34 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 extern crate alloc;
+
+use core::cell::UnsafeCell;
+
 // KizunaOS interactive kernel monitor.
-// v0.1.0 desktop-alpha mirrors monitor I/O into the graphical terminal.
+// Event-driven: UART and VirtIO keyboard both feed the same shell.
 
 const UART_BASE: usize = 0x0900_0000;
 const UART_DR: *mut u32 = UART_BASE as *mut u32;
 const UART_FR: *const u32 = (UART_BASE + 0x18) as *const u32;
 const UART_FR_TXFF: u32 = 1 << 5;
 const UART_FR_RXFE: u32 = 1 << 4;
+
+struct MonitorState {
+    buf: [u8; 128],
+    len: usize,
+}
+
+impl MonitorState {
+    const fn new() -> Self {
+        Self {
+            buf: [0; 128],
+            len: 0,
+        }
+    }
+}
+
+struct MonitorCell(UnsafeCell<MonitorState>);
+unsafe impl Sync for MonitorCell {}
+static MONITOR: MonitorCell = MonitorCell(UnsafeCell::new(MonitorState::new()));
 
 fn raw_putc(b: u8) {
     unsafe {
@@ -42,22 +63,11 @@ fn puts(s: &str) {
     }
 }
 
-fn getc() -> u8 {
-    unsafe {
-        while core::ptr::read_volatile(UART_FR) & UART_FR_RXFE != 0 {}
-        (core::ptr::read_volatile(UART_DR) & 0xff) as u8
-    }
-}
-
 fn put_hex64(v: u64) {
     puts("0x");
     for j in 0..16 {
         let nib = ((v >> ((15 - j) * 4)) & 0xf) as u8;
-        putc(if nib < 10 {
-            b'0' + nib
-        } else {
-            b'a' + (nib - 10)
-        });
+        putc(if nib < 10 { b'0' + nib } else { b'a' + (nib - 10) });
     }
 }
 
@@ -96,6 +106,7 @@ fn cmd_help() {
     puts("kizuna monitor commands:\n");
     puts("  help              this list\n");
     puts("  clear             clear serial + graphical terminal\n");
+    puts("  input             VirtIO input device status\n");
     puts("  el                show current exception level\n");
     puts("  regs              dump key system registers\n");
     puts("  peek <hex>        read 32 bits from an address\n");
@@ -107,6 +118,14 @@ fn cmd_help() {
     puts("  uaf               demonstrate freed-chunk reuse\n");
     puts("  poweroff / halt   power off the machine\n");
     puts("  reboot            restart the machine\n");
+}
+
+fn cmd_input() {
+    puts("VirtIO input:\n");
+    puts("  keyboard : ");
+    puts(if crate::input::has_keyboard() { "online\n" } else { "missing\n" });
+    puts("  tablet   : ");
+    puts(if crate::input::has_pointer() { "online\n" } else { "missing\n" });
 }
 
 fn cmd_regs() {
@@ -132,6 +151,7 @@ fn cmd_mem() {
     puts("known memory map (QEMU virt):\n");
     puts("  0x09000000  PL011 UART\n");
     puts("  0x09020000  fw_cfg\n");
+    puts("  0x0a000000  VirtIO MMIO transport bank\n");
     puts("  0x40000000  RAM base\n");
     puts("  0x40100000  kernel load address\n");
 }
@@ -198,68 +218,101 @@ fn tokenize(line: &[u8]) -> ([&[u8]; 3], usize) {
     (toks, n)
 }
 
+fn execute_line(line: &[u8]) {
+    let (toks, n) = tokenize(line);
+    if n == 0 {
+        return;
+    }
+
+    match toks[0] {
+        b"help" => cmd_help(),
+        b"clear" => cmd_clear(),
+        b"input" => cmd_input(),
+        b"el" => {
+            puts("CurrentEL = EL");
+            putc(b'0' + current_el() as u8);
+            puts("\n");
+        }
+        b"regs" => cmd_regs(),
+        b"mem" => cmd_mem(),
+        b"peek" => cmd_peek(toks[1]),
+        b"poke" => cmd_poke(toks[1], toks[2]),
+        b"fault" => cmd_fault(),
+        b"heap" => cmd_heap(),
+        b"alloctest" => cmd_alloctest(),
+        b"uaf" => cmd_uaf(),
+        b"poweroff" | b"halt" => cmd_poweroff(),
+        b"reboot" => cmd_reboot(),
+        _ => {
+            puts("unknown command: ");
+            puts(core::str::from_utf8(toks[0]).unwrap_or("?"));
+            puts("\n");
+        }
+    }
+}
+
+fn prompt() {
+    puts("kizuna> ");
+}
+
+pub fn feed_input(c: u8) {
+    unsafe {
+        let state = &mut *MONITOR.0.get();
+
+        match c {
+            b'\r' | b'\n' => {
+                raw_puts("\r\n");
+                crate::desktop::console_putc(b'\n');
+
+                let len = state.len;
+                let mut line = [0u8; 128];
+                line[..len].copy_from_slice(&state.buf[..len]);
+                state.len = 0;
+
+                execute_line(&line[..len]);
+                prompt();
+            }
+            0x7f | 0x08 => {
+                if state.len > 0 {
+                    state.len -= 1;
+                    raw_puts("\x08 \x08");
+                    crate::desktop::console_putc(0x08);
+                }
+            }
+            b'\t' | 0x20..=0x7e => {
+                if state.len < state.buf.len() - 1 {
+                    state.buf[state.len] = c;
+                    state.len += 1;
+                    raw_putc(c);
+                    crate::desktop::console_putc(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn poll_uart() {
+    for _ in 0..64 {
+        let empty = unsafe { core::ptr::read_volatile(UART_FR) & UART_FR_RXFE != 0 };
+        if empty {
+            break;
+        }
+
+        let c = unsafe { (core::ptr::read_volatile(UART_DR) & 0xff) as u8 };
+        feed_input(c);
+    }
+}
+
 pub fn run() -> ! {
-    puts("\nKizuna monitor attached to desktop terminal. type 'help'.\n");
-    let mut buf = [0u8; 128];
+    puts("\nKizuna event shell online. click the QEMU window and type directly.\n");
+    prompt();
 
     loop {
-        puts("kizuna> ");
-        let mut len = 0;
-
-        loop {
-            let c = getc();
-            match c {
-                b'\r' | b'\n' => {
-                    putc(b'\n');
-                    break;
-                }
-                0x7f | 0x08 => {
-                    if len > 0 {
-                        len -= 1;
-                        raw_puts("\x08 \x08");
-                        unsafe {
-                            crate::desktop::console_putc(0x08);
-                        }
-                    }
-                }
-                _ => {
-                    if len < buf.len() - 1 {
-                        buf[len] = c;
-                        len += 1;
-                        putc(c);
-                    }
-                }
-            }
-        }
-
-        let (toks, n) = tokenize(&buf[..len]);
-        if n == 0 {
-            continue;
-        }
-
-        match toks[0] {
-            b"help" => cmd_help(),
-            b"clear" => cmd_clear(),
-            b"el" => {
-                puts("CurrentEL = EL");
-                putc(b'0' + current_el() as u8);
-                puts("\n");
-            }
-            b"regs" => cmd_regs(),
-            b"mem" => cmd_mem(),
-            b"peek" => cmd_peek(toks[1]),
-            b"poke" => cmd_poke(toks[1], toks[2]),
-            b"fault" => cmd_fault(),
-            b"heap" => cmd_heap(),
-            b"alloctest" => cmd_alloctest(),
-            b"uaf" => cmd_uaf(),
-            b"poweroff" | b"halt" => cmd_poweroff(),
-            b"reboot" => cmd_reboot(),
-            _ => {
-                puts("unknown command: ");
-                puts(core::str::from_utf8(toks[0]).unwrap_or("?"));
-                puts("\n");
-            }
+        poll_uart();
+        unsafe {
+            crate::input::poll();
+            core::arch::asm!("yield", options(nomem, nostack));
         }
     }
 }
