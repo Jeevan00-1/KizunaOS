@@ -21,13 +21,18 @@ The project currently has:
 - [x] Software backbuffer + present path
 - [x] Anti-aliased framebuffer text rendering
 - [x] Graphical desktop-alpha shell
-- [x] Graphical terminal mirroring the live kernel monitor
+- [x] Graphical terminal mirroring the kernel monitor
+- [x] VirtIO MMIO device discovery
+- [x] VirtIO tablet input
+- [x] VirtIO keyboard input
+- [x] Software mouse cursor overlay
+- [x] Non-blocking kernel event loop (polled)
 - [ ] GIC + ARM generic timer interrupts
+- [ ] Interrupt-driven input
 - [ ] Preemptive scheduler
 - [ ] MMU / page tables
 - [ ] EL0 userspace
 - [ ] SVC syscall ABI
-- [ ] VirtIO keyboard / pointer input
 - [ ] VFS + block storage
 - [ ] Userspace terminal and applications
 
@@ -37,6 +42,7 @@ The project currently has:
 - Kernel language: Rust (`no_std`)
 - Primary target: QEMU `virt`
 - Display: QEMU `ramfb`, XRGB8888, 800x600
+- Input: VirtIO keyboard + absolute tablet over MMIO
 - Serial: PL011 UART
 - Current privilege level: EL1
 
@@ -46,16 +52,27 @@ The project currently has:
 cargo run
 ```
 
-The QEMU window is the graphical desktop. The terminal that launched QEMU remains the serial/debug input channel for the current alpha.
+The QEMU window is directly interactive in the current alpha: move the host pointer over it and type after focusing the window. The launch terminal remains available as the serial/debug console too.
+
+Inside the Kizuna terminal:
+
+```text
+input
+help
+heap
+regs
+mem
+```
 
 ## v0.1.x direction
 
 The next large subsystem pass is:
 
-1. GIC + timer IRQs
-2. kernel event loop + scheduler
-3. MMU and address spaces
-4. EL0 process launch
-5. syscalls
-6. VirtIO input + storage
-7. move the terminal out of the kernel and into userspace
+1. GICv2 + ARM generic timer IRQs
+2. convert polling into interrupt-driven events
+3. scheduler + kernel tasks
+4. MMU and address spaces
+5. EL0 process launch
+6. syscall ABI
+7. VirtIO block storage + VFS
+8. move the terminal out of the kernel and into userspace
