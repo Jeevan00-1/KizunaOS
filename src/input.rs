@@ -395,6 +395,7 @@ unsafe fn handle_keyboard_event(s: &mut InputState, ev: InputEvent) {
 }
 
 pub unsafe fn init() {
+    crate::uart_write("input: init begin\n");
     let s = state();
 
     for slot in 0..VIRTIO_MMIO_SLOTS {
@@ -417,14 +418,21 @@ pub unsafe fn init() {
             continue;
         }
 
+        crate::uart_write("input: VirtIO input transport found\n");
+        crate::uart_write("input: constructing driver\n");
+
         let mut driver = match VirtIOInput::<KizunaHal, _>::new(transport) {
-            Ok(d) => d,
+            Ok(d) => {
+                crate::uart_write("input: driver constructed\n");
+                d
+            }
             Err(_) => {
                 crate::uart_write("input: virtio device init failed\n");
                 continue;
             }
         };
 
+        crate::uart_write("input: querying ABS axes\n");
         let xinfo = driver.abs_info(ABS_X as u8);
         let yinfo = driver.abs_info(ABS_Y as u8);
 
@@ -461,6 +469,8 @@ pub unsafe fn init() {
     if s.keyboard.is_none() {
         crate::uart_write("input: no keyboard device found\n");
     }
+
+    crate::uart_write("input: init complete\n");
 }
 
 pub unsafe fn poll() {
