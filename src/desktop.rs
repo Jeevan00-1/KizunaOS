@@ -410,6 +410,13 @@ pub unsafe fn console_putc(byte: u8) {
                 ensure_cursor_visible();
             }
 
+            framebuffer::fill_rect_live(
+                CURSOR_X,
+                CURSOR_Y,
+                cw,
+                graphics::line_height(),
+                TERMINAL_BG,
+            );
             graphics::draw_char_live(CURSOR_X, CURSOR_Y, byte as char, TERMINAL_TEXT);
             CURSOR_X += cw;
         }
