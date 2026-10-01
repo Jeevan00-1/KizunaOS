@@ -24,8 +24,12 @@ The project currently has:
 - [x] Graphical terminal mirroring the kernel monitor
 - [x] VirtIO MMIO device discovery
 - [x] VirtIO tablet input
-- [x] VirtIO keyboard input
-- [x] Software mouse cursor overlay
+- [x] VirtIO keyboard input with Shift/Caps/Ctrl/Alt/Meta modifiers
+- [x] Special-key input: arrows, Home/End, Delete, Escape
+- [x] Shell line editing + 8-entry command history
+- [x] Shell shortcuts: Ctrl+A/E/U/C/L and Ctrl+Alt+T
+- [x] VirtIO tablet with left/right/middle buttons
+- [x] Software mouse cursor overlay + click-to-focus terminal
 - [x] Non-blocking kernel event loop (polled)
 - [ ] GIC + ARM generic timer interrupts
 - [ ] Interrupt-driven input
@@ -63,6 +67,11 @@ heap
 regs
 mem
 ```
+
+Interactive controls currently include command history on Up/Down, cursor movement with
+Left/Right and Home/End, Delete/Backspace editing, Ctrl+A/E/U/C/L, and Ctrl+Alt+T to
+focus the terminal. Clicking the terminal/window or dock focuses it; clicking the
+desktop releases keyboard focus. Left, right, and middle pointer buttons are tracked.
 
 ## v0.1.x direction
 
