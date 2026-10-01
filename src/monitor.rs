@@ -386,10 +386,11 @@ fn cmd_poke(a: &[u8], b: &[u8]) {
 }
 
 fn cmd_fault() {
-    puts("triggering data abort at 0xffff0000dead0000...\n");
+    puts("triggering one expected data abort at 0xffff0000dead0000...\n");
+    crate::exceptions::expect_data_abort();
     let p = 0xffff_0000_dead_0000usize as *const u8;
     let _x = unsafe { core::ptr::read_volatile(p) };
-    puts("...and we're back. monitor survived the fault.\n");
+    puts("...and we're back. monitor survived the expected fault.\n");
 }
 
 fn tokenize(line: &[u8]) -> ([&[u8]; 3], usize) {
