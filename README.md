@@ -19,7 +19,8 @@ The project currently has:
 - [x] 1 MiB free-list heap allocator with chunk reuse
 - [x] QEMU `ramfb` framebuffer through fw_cfg DMA
 - [x] Software backbuffer + present path
-- [x] Anti-aliased framebuffer text rendering
+- [x] Native 1280x800 framebuffer layout
+- [x] 20px anti-aliased framebuffer text rendering
 - [x] Graphical desktop-alpha shell
 - [x] Graphical terminal mirroring the kernel monitor
 - [x] VirtIO MMIO device discovery
@@ -45,7 +46,7 @@ The project currently has:
 - CPU: AArch64
 - Kernel language: Rust (`no_std`)
 - Primary target: QEMU `virt`
-- Display: QEMU `ramfb`, XRGB8888, 800x600
+- Display: QEMU `ramfb`, XRGB8888, 1280x800 native framebuffer
 - Input: VirtIO keyboard + absolute tablet over MMIO
 - Serial: PL011 UART
 - Current privilege level: EL1
