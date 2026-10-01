@@ -1,7 +1,12 @@
 // KizunaOS v0.0.3 — exception handling with a full trap frame + recovery
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use core::arch::global_asm;
+use core::{
+    arch::global_asm,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+static EXPECTED_DATA_ABORT: AtomicBool = AtomicBool::new(false);
 
 const UART0_BASE: usize = 0x0900_0000;
 const UART_DR: *mut u8 = UART0_BASE as *mut u8;
@@ -67,20 +72,24 @@ extern "C" fn rust_exception_handler(index: u64, frame: *mut TrapFrame) {
         puts("x0    : "); put_hex64(f.x[0]); puts("   x30: "); put_hex64(f.x[30]); puts("\n");
     }
 
-    // ---- RECOVERY ----
-    // For a synchronous fault we understand, skip the 4-byte faulting
-    // instruction and RETURN. This turns a crash into a survivable event —
-    // the defining behaviour of an operating system.
-    // (A real OS would map the page and RETRY; skipping is the honest demo
-    //  of "return from exception" — real fault resolution is v0.0.6/MMU.)
-    if ec == 0x25 || ec == 0x24 || ec == 0x3c {
+    // Only the monitor's deliberate fault test is recoverable. Unexpected data
+    // aborts are kernel bugs and must stop here instead of silently skipping
+    // instructions and corrupting execution.
+    let expected_abort = (ec == 0x25 || ec == 0x24)
+        && EXPECTED_DATA_ABORT.swap(false, Ordering::SeqCst);
+
+    if expected_abort || ec == 0x3c {
         f.elr += 4;
-        unsafe { puts("recover: skip faulting insn, resume\n---------------------\n"); }
+        unsafe { puts("recover: expected synchronous fault, resume\n---------------------\n"); }
     } else {
-        unsafe { puts("recover: UNHANDLED — halting\n---------------------\n"); }
+        unsafe { puts("recover: UNEXPECTED KERNEL FAULT — halting\n---------------------\n"); }
         loop { unsafe { core::arch::asm!("wfe") } }
     }
     // normal return -> assembly restores the frame and performs `eret`
+}
+
+pub fn expect_data_abort() {
+    EXPECTED_DATA_ABORT.store(true, Ordering::SeqCst);
 }
 
 pub fn current_el() -> u64 {
