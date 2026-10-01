@@ -9,6 +9,7 @@ mod exceptions;
 mod framebuffer;
 mod graphics;
 mod heap;
+mod input;
 mod monitor;
 
 use core::{
@@ -23,6 +24,10 @@ global_asm!(
     .global _start
     .type _start, %function
 _start:
+    // Keep asynchronous exceptions masked until the GIC/timer IRQ pass.
+    // VirtIO input is polled in v0.1.0-alpha.
+    msr  daifset, #0xf
+
     mrs  x0, cpacr_el1
     mov  x1, #0x300000
     orr  x0, x0, x1
@@ -69,7 +74,6 @@ unsafe fn zero_bss() {
 
     let start = core::ptr::addr_of_mut!(__bss_start) as usize;
     let end = core::ptr::addr_of_mut!(__bss_end) as usize;
-
     core::ptr::write_bytes(start as *mut u8, 0, end - start);
 }
 
@@ -95,6 +99,9 @@ pub extern "C" fn rust_main() -> ! {
         if framebuffer::init() {
             desktop::init();
             uart_write("desktop: compositor shell online\n");
+
+            input::init();
+            uart_write("input: polling event loop ready\n");
         } else {
             uart_write("desktop: unavailable, serial fallback active\n");
         }
