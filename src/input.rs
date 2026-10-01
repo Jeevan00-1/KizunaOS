@@ -86,6 +86,8 @@ static DMA_POOL: DmaPool = DmaPool {
     bytes: UnsafeCell::new([0; DMA_POOL_BYTES]),
 };
 static DMA_NEXT: AtomicUsize = AtomicUsize::new(0);
+static KEY_EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static POINTER_EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct KizunaHal;
 
@@ -498,6 +500,7 @@ pub unsafe fn poll() {
         let Some(event) = event else {
             break;
         };
+        POINTER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
         pointer_dirty |= handle_pointer_event(s, event);
     }
 
@@ -525,6 +528,7 @@ pub unsafe fn poll() {
         let Some(event) = event else {
             break;
         };
+        KEY_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
         handle_keyboard_event(s, event);
     }
 
@@ -539,4 +543,12 @@ pub fn has_pointer() -> bool {
 
 pub fn has_keyboard() -> bool {
     unsafe { (*INPUT.0.get()).keyboard.is_some() }
+}
+
+pub fn keyboard_event_count() -> usize {
+    KEY_EVENT_COUNT.load(Ordering::Relaxed)
+}
+
+pub fn pointer_event_count() -> usize {
+    POINTER_EVENT_COUNT.load(Ordering::Relaxed)
 }
