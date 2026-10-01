@@ -9,6 +9,11 @@ virtio-drivers = { version = "0.13.0", default-features = false, features = ["al
 
 [profile.dev]
 panic = "abort"
+opt-level = 2
+debug = 1
 
 [profile.release]
 panic = "abort"
+opt-level = 3
+lto = "thin"
+codegen-units = 1
