@@ -327,6 +327,28 @@ unsafe fn ensure_cursor_visible() {
     CURSOR_Y -= graphics::line_height();
 }
 
+pub unsafe fn console_move_left() {
+    if !READY {
+        return;
+    }
+
+    let cw = graphics::char_width();
+    if CURSOR_X - cw >= CONSOLE_X0 {
+        CURSOR_X -= cw;
+    }
+}
+
+pub unsafe fn console_move_right() {
+    if !READY {
+        return;
+    }
+
+    let cw = graphics::char_width();
+    if CURSOR_X + cw < CONSOLE_RIGHT {
+        CURSOR_X += cw;
+    }
+}
+
 pub unsafe fn console_clear() {
     if !READY {
         return;
