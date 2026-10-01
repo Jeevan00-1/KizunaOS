@@ -3,6 +3,8 @@ extern crate alloc;
 
 use core::cell::UnsafeCell;
 
+use crate::input::{Key, KeyEvent};
+
 // KizunaOS interactive kernel monitor.
 // Event-driven: UART and VirtIO keyboard both feed the same shell.
 
@@ -12,9 +14,17 @@ const UART_FR: *const u32 = (UART_BASE + 0x18) as *const u32;
 const UART_FR_TXFF: u32 = 1 << 5;
 const UART_FR_RXFE: u32 = 1 << 4;
 
+const HISTORY_CAP: usize = 8;
+
 struct MonitorState {
     buf: [u8; 128],
     len: usize,
+    cursor: usize,
+
+    history: [[u8; 128]; HISTORY_CAP],
+    history_len: [usize; HISTORY_CAP],
+    history_count: usize,
+    history_nav: usize,
 }
 
 impl MonitorState {
@@ -22,6 +32,11 @@ impl MonitorState {
         Self {
             buf: [0; 128],
             len: 0,
+            cursor: 0,
+            history: [[0; 128]; HISTORY_CAP],
+            history_len: [0; HISTORY_CAP],
+            history_count: 0,
+            history_nav: 0,
         }
     }
 }
@@ -94,6 +109,186 @@ fn parse_hex(s: &[u8]) -> Option<u64> {
     Some(val)
 }
 
+
+fn move_visual_left(count: usize) {
+    for _ in 0..count {
+        raw_puts("\x1b[D");
+        unsafe { crate::desktop::console_move_left(); }
+    }
+}
+
+fn move_visual_right(count: usize) {
+    for _ in 0..count {
+        raw_puts("\x1b[C");
+        unsafe { crate::desktop::console_move_right(); }
+    }
+}
+
+fn erase_current_line(state: &mut MonitorState) {
+    move_visual_left(state.cursor);
+
+    for _ in 0..state.len {
+        raw_putc(b' ');
+        unsafe { crate::desktop::console_putc(b' '); }
+    }
+
+    move_visual_left(state.len);
+
+    state.len = 0;
+    state.cursor = 0;
+    state.history_nav = 0;
+}
+
+fn replace_current_line(state: &mut MonitorState, bytes: &[u8]) {
+    erase_current_line(state);
+
+    let n = bytes.len().min(state.buf.len() - 1);
+    state.buf[..n].copy_from_slice(&bytes[..n]);
+    state.len = n;
+    state.cursor = n;
+
+    for &b in &state.buf[..n] {
+        raw_putc(b);
+        unsafe { crate::desktop::console_putc(b); }
+    }
+}
+
+fn push_history(state: &mut MonitorState, line: &[u8]) {
+    if line.is_empty() {
+        state.history_nav = 0;
+        return;
+    }
+
+    // Do not duplicate the newest command.
+    if state.history_count > 0 {
+        let newest_len = state.history_len[0];
+        if newest_len == line.len() && state.history[0][..newest_len] == *line {
+            state.history_nav = 0;
+            return;
+        }
+    }
+
+    for i in (1..HISTORY_CAP).rev() {
+        state.history[i] = state.history[i - 1];
+        state.history_len[i] = state.history_len[i - 1];
+    }
+
+    let n = line.len().min(state.history[0].len());
+    state.history[0].fill(0);
+    state.history[0][..n].copy_from_slice(&line[..n]);
+    state.history_len[0] = n;
+    state.history_count = (state.history_count + 1).min(HISTORY_CAP);
+    state.history_nav = 0;
+}
+
+fn history_up(state: &mut MonitorState) {
+    if state.history_count == 0 {
+        return;
+    }
+
+    state.history_nav = (state.history_nav + 1).min(state.history_count);
+    let index = state.history_nav - 1;
+    let len = state.history_len[index];
+    let mut line = [0u8; 128];
+    line[..len].copy_from_slice(&state.history[index][..len]);
+    replace_current_line(state, &line[..len]);
+    state.history_nav = index + 1;
+}
+
+fn history_down(state: &mut MonitorState) {
+    if state.history_nav == 0 {
+        return;
+    }
+
+    state.history_nav -= 1;
+
+    if state.history_nav == 0 {
+        replace_current_line(state, &[]);
+        return;
+    }
+
+    let index = state.history_nav - 1;
+    let len = state.history_len[index];
+    let mut line = [0u8; 128];
+    line[..len].copy_from_slice(&state.history[index][..len]);
+    replace_current_line(state, &line[..len]);
+    state.history_nav = index + 1;
+}
+
+fn insert_byte(state: &mut MonitorState, byte: u8) {
+    if state.len >= state.buf.len() - 1 {
+        return;
+    }
+
+    for i in (state.cursor..state.len).rev() {
+        state.buf[i + 1] = state.buf[i];
+    }
+
+    state.buf[state.cursor] = byte;
+    state.len += 1;
+    state.cursor += 1;
+    state.history_nav = 0;
+
+    let start = state.cursor - 1;
+    for i in start..state.len {
+        let b = state.buf[i];
+        raw_putc(b);
+        unsafe { crate::desktop::console_putc(b); }
+    }
+
+    let tail = state.len - state.cursor;
+    move_visual_left(tail);
+}
+
+fn backspace(state: &mut MonitorState) {
+    if state.cursor == 0 {
+        return;
+    }
+
+    state.cursor -= 1;
+    move_visual_left(1);
+
+    for i in state.cursor..state.len - 1 {
+        state.buf[i] = state.buf[i + 1];
+    }
+    state.len -= 1;
+
+    for i in state.cursor..state.len {
+        let b = state.buf[i];
+        raw_putc(b);
+        unsafe { crate::desktop::console_putc(b); }
+    }
+
+    raw_putc(b' ');
+    unsafe { crate::desktop::console_putc(b' '); }
+
+    move_visual_left((state.len - state.cursor) + 1);
+    state.history_nav = 0;
+}
+
+fn delete_at_cursor(state: &mut MonitorState) {
+    if state.cursor >= state.len {
+        return;
+    }
+
+    for i in state.cursor..state.len - 1 {
+        state.buf[i] = state.buf[i + 1];
+    }
+    state.len -= 1;
+
+    for i in state.cursor..state.len {
+        let b = state.buf[i];
+        raw_putc(b);
+        unsafe { crate::desktop::console_putc(b); }
+    }
+
+    raw_putc(b' ');
+    unsafe { crate::desktop::console_putc(b' '); }
+
+    move_visual_left((state.len - state.cursor) + 1);
+    state.history_nav = 0;
+}
+
 fn current_el() -> u64 {
     let el: u64;
     unsafe {
@@ -126,6 +321,10 @@ fn cmd_input() {
     puts(if crate::input::has_keyboard() { "online\n" } else { "missing\n" });
     puts("  tablet   : ");
     puts(if crate::input::has_pointer() { "online\n" } else { "missing\n" });
+    puts("  terminal : ");
+    puts(if crate::desktop::terminal_focused() { "focused\n" } else { "unfocused\n" });
+    puts("keys: arrows edit/history, Ctrl+A/E, Ctrl+U, Ctrl+C, Ctrl+L\n");
+    puts("global: Ctrl+Alt+T focuses Terminal\n");
 }
 
 fn cmd_regs() {
@@ -255,41 +454,152 @@ fn prompt() {
     puts("kizuna> ");
 }
 
-pub fn feed_input(c: u8) {
+pub fn handle_key(event: KeyEvent) {
+    // Global Arch-style terminal focus shortcut.
+    if event.ctrl && event.alt {
+        if let Key::Char(c) = event.key {
+            if c.to_ascii_lowercase() == b't' {
+                unsafe { crate::desktop::focus_terminal(); }
+                return;
+            }
+        }
+    }
+
+    if !crate::desktop::terminal_focused() {
+        return;
+    }
+
     unsafe {
         let state = &mut *MONITOR.0.get();
 
-        match c {
-            b'\r' | b'\n' => {
+        if event.ctrl {
+            if let Key::Char(c) = event.key {
+                match c.to_ascii_lowercase() {
+                    b'c' => {
+                        erase_current_line(state);
+                        puts("^C\n");
+                        prompt();
+                        return;
+                    }
+                    b'l' => {
+                        state.len = 0;
+                        state.cursor = 0;
+                        state.history_nav = 0;
+                        cmd_clear();
+                        prompt();
+                        return;
+                    }
+                    b'u' => {
+                        erase_current_line(state);
+                        return;
+                    }
+                    b'a' => {
+                        move_visual_left(state.cursor);
+                        state.cursor = 0;
+                        return;
+                    }
+                    b'e' => {
+                        let n = state.len - state.cursor;
+                        move_visual_right(n);
+                        state.cursor = state.len;
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        match event.key {
+            Key::Char(c) => {
+                if !event.ctrl && !event.alt && !event.meta {
+                    insert_byte(state, c);
+                }
+            }
+            Key::Enter => {
                 raw_puts("\r\n");
                 crate::desktop::console_putc(b'\n');
 
                 let len = state.len;
                 let mut line = [0u8; 128];
                 line[..len].copy_from_slice(&state.buf[..len]);
+                push_history(state, &line[..len]);
+
                 state.len = 0;
+                state.cursor = 0;
+                state.history_nav = 0;
 
                 execute_line(&line[..len]);
                 prompt();
             }
-            0x7f | 0x08 => {
-                if state.len > 0 {
-                    state.len -= 1;
-                    raw_puts("\x08 \x08");
-                    crate::desktop::console_putc(0x08);
+            Key::Backspace => backspace(state),
+            Key::Delete => delete_at_cursor(state),
+            Key::Tab => {
+                for _ in 0..4 {
+                    insert_byte(state, b' ');
                 }
             }
-            b'\t' | 0x20..=0x7e => {
-                if state.len < state.buf.len() - 1 {
-                    state.buf[state.len] = c;
-                    state.len += 1;
-                    raw_putc(c);
-                    crate::desktop::console_putc(c);
+            Key::Escape => erase_current_line(state),
+            Key::Up => history_up(state),
+            Key::Down => history_down(state),
+            Key::Left => {
+                if state.cursor > 0 {
+                    state.cursor -= 1;
+                    move_visual_left(1);
                 }
             }
-            _ => {}
+            Key::Right => {
+                if state.cursor < state.len {
+                    state.cursor += 1;
+                    move_visual_right(1);
+                }
+            }
+            Key::Home => {
+                move_visual_left(state.cursor);
+                state.cursor = 0;
+            }
+            Key::End => {
+                let n = state.len - state.cursor;
+                move_visual_right(n);
+                state.cursor = state.len;
+            }
         }
     }
+}
+
+pub fn feed_input(c: u8) {
+    let event = match c {
+        b'\r' | b'\n' => KeyEvent {
+            key: Key::Enter,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        },
+        0x7f | 0x08 => KeyEvent {
+            key: Key::Backspace,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        },
+        b'\t' => KeyEvent {
+            key: Key::Tab,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        },
+        0x20..=0x7e => KeyEvent {
+            key: Key::Char(c),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        },
+        _ => return,
+    };
+
+    handle_key(event);
 }
 
 fn poll_uart() {
