@@ -55,7 +55,6 @@ unsafe impl Hal for KizunaHal {
     fn dma_alloc(
         pages: usize,
         _direction: BufferDirection,
-        _access_platform: bool,
     ) -> (PhysAddr, NonNull<u8>) {
         let Some(bytes) = pages.checked_mul(PAGE_SIZE) else {
             return (0, NonNull::dangling());
@@ -78,7 +77,6 @@ unsafe impl Hal for KizunaHal {
         _paddr: PhysAddr,
         _vaddr: NonNull<u8>,
         _pages: usize,
-        _access_platform: bool,
     ) -> i32 {
         // Input devices persist for the kernel lifetime, so this boot DMA arena
         // is monotonic until the real physical-page allocator arrives.
@@ -92,7 +90,6 @@ unsafe impl Hal for KizunaHal {
     unsafe fn share(
         buffer: NonNull<[u8]>,
         _direction: BufferDirection,
-        _access_platform: bool,
     ) -> PhysAddr {
         buffer.as_ptr() as *mut u8 as usize as u64
     }
@@ -101,7 +98,6 @@ unsafe impl Hal for KizunaHal {
         _paddr: PhysAddr,
         _buffer: NonNull<[u8]>,
         _direction: BufferDirection,
-        _access_platform: bool,
     ) {
     }
 }
