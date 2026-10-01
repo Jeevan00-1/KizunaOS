@@ -7,14 +7,36 @@ common=(
   -M virt
   -m 256M
   -serial mon:stdio
-  -device ramfb
-  -device virtio-keyboard-device
-  -device virtio-tablet-device
+  -device ramfb,id=ramfb0
+  -device virtio-keyboard-device,id=kbd0
+  -device virtio-tablet-device,id=tablet0
 )
 
 case "$(uname -s)" in
   Darwin)
-    exec qemu-system-aarch64       "${common[@]}"       -accel hvf       -cpu host       -display cocoa       -kernel "$kernel"
+    # Homebrew's QEMU is Cocoa-only on macOS. Recent macOS builds can show a
+    # Cocoa QEMU window that receives mouse events while the terminal remains
+    # the active/key application, so keyDown events never reach QEMU.
+    #
+    # Keep QEMU in the foreground (so serial stdin still works) and use a tiny
+    # helper to raise/activate the Cocoa process after the window appears.
+    (
+      sleep 0.8
+      osascript <<'APPLESCRIPT' >/dev/null 2>&1 || true
+tell application "System Events"
+    if exists process "qemu-system-aarch64" then
+        tell process "qemu-system-aarch64"
+            set frontmost to true
+            try
+                perform action "AXRaise" of window 1
+            end try
+        end tell
+    end if
+end tell
+APPLESCRIPT
+    ) &
+
+    exec qemu-system-aarch64       "${common[@]}"       -name KizunaOS       -accel hvf       -cpu host       -display cocoa,zoom-to-fit=on,zoom-interpolation=on,full-grab=on       -kernel "$kernel"
     ;;
 
   Linux)
