@@ -243,7 +243,6 @@ pub unsafe fn restore_front_from_back(x: i32, y: i32, w: i32, h: i32) {
         copy_nonoverlapping(back_ptr().add(i), front_ptr().add(i), width);
     }
 
-    core::arch::asm!("dsb sy");
 }
 
 #[inline(always)]
