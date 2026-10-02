@@ -34,6 +34,7 @@ const KEY_TAB: u16 = 15;
 const KEY_ENTER: u16 = 28;
 const KEY_LEFTCTRL: u16 = 29;
 const KEY_LEFTSHIFT: u16 = 42;
+const KEY_RIGHTSHIFT: u16 = 54;
 const KEY_LEFTALT: u16 = 56;
 const KEY_CAPSLOCK: u16 = 58;
 const KEY_RIGHTCTRL: u16 = 97;

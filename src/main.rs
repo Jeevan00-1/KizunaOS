@@ -126,6 +126,6 @@ fn panic(_info: &PanicInfo) -> ! {
     }
 
     loop {
-        unsafe { asm!("wfe"); }
+        unsafe { crate::input::poll(); }
     }
 }
